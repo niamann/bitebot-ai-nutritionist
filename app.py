@@ -230,8 +230,9 @@ class GeminiNutritionAI:
     def __init__(self):
         self.client = None
 
-    def start_chat(self):
+def start_chat(self):
     """Prepare Gemini model + initialize chat history."""
+    
     if not st.session_state.get("gemini_initialized", False):
         self.client = init_gemini()
     else:
@@ -255,51 +256,47 @@ class GeminiNutritionAI:
             "6. Include emojis where appropriate\n"
             "7. Be honest about limitations\n"
         )
-        st.session_state.gemini_messages.append({"role": "system", "text": system_prompt})
+        st.session_state.gemini_messages.append(
+            {"role": "system", "text": system_prompt}
+        )
 
     return True
 
 
-    def chat(self, user_message: str) -> str:
-        """Send message to Gemini and get response text."""
-        if not self.client:
-            if not self.start_chat():
-                return "⚠️ Gemini AI is not available at the moment. Using fallback responses."
 
-        try:
-            # Add user message
-            st.session_state.gemini_messages.append({"role": "user", "text": user_message})
+def chat(self, user_message: str) -> str:
+    if not self.client:
+        if not self.start_chat():
+            return "⚠️ Gemini AI is not available."
 
-            # Build a single text prompt from history (simple + reliable)
-            prompt_lines = []
-            for m in st.session_state.gemini_messages:
-                if m["role"] == "system":
-                    prompt_lines.append(f"SYSTEM:\n{m['text']}\n")
-                elif m["role"] == "user":
-                    prompt_lines.append(f"USER: {m['text']}\n")
-                else:
-                    prompt_lines.append(f"ASSISTANT: {m['text']}\n")
+    try:
+        st.session_state.gemini_messages.append(
+            {"role": "user", "text": user_message}
+        )
 
-            combined_prompt = "\n".join(prompt_lines) + "\nASSISTANT:"
+        prompt_lines = []
+        for m in st.session_state.gemini_messages:
+            if m["role"] == "system":
+                prompt_lines.append(f"SYSTEM:\n{m['text']}\n")
+            elif m["role"] == "user":
+                prompt_lines.append(f"USER: {m['text']}\n")
+            else:
+                prompt_lines.append(f"ASSISTANT: {m['text']}\n")
 
-            response = self.client.generate_content(combined_prompt)
-ai_text = (response.text or "").strip()
+        combined_prompt = "\n".join(prompt_lines) + "\nASSISTANT:"
 
+        response = self.client.generate_content(combined_prompt)
+        ai_text = (response.text or "").strip()
 
-            ai_text = (resp.text or "").strip()
-            if not ai_text:
-                ai_text = "⚠️ I didn't get a response. Using fallback information."
+        st.session_state.gemini_messages.append(
+            {"role": "assistant", "text": ai_text}
+        )
 
-            # Save assistant reply to history
-            st.session_state.gemini_messages.append({"role": "assistant", "text": ai_text})
+        return ai_text
 
-            return ai_text
+    except Exception:
+        return "⚠️ Gemini AI is currently busy. Using fallback responses."
 
-        except Exception as e:
-            # If Gemini fails, use fallback based on the question
-            error_msg = str(e)
-            # Don't show technical error to user, just use fallback
-            return "⚠️ Gemini AI is currently busy. Using our pre-built nutrition information instead."
 
 # Initialize Gemini AI
 gemini_ai = GeminiNutritionAI()
