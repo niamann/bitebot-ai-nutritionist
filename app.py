@@ -191,13 +191,23 @@ FOOD_DATABASE = {
 }
 
 def init_gemini():
-    """Initialize Gemini client using GEMINI_API_KEY from .env / environment."""
+    """Initialize Gemini client using GEMINI_API_KEY from Streamlit secrets or environment."""
     try:
         load_dotenv()
 
-        api_key = os.environ.get("GEMINI_API_KEY")
+        api_key = None
+
+        # 1) Streamlit Cloud Secrets
+        try:
+            api_key = st.secrets.get("GEMINI_API_KEY", None)
+        except Exception:
+            api_key = None
+
+        # 2) Local env / .env
+        api_key = api_key or os.environ.get("GEMINI_API_KEY")
+
         if not api_key:
-            st.error("GEMINI_API_KEY not found. Put it in a .env file or set it in your environment.")
+            st.error("GEMINI_API_KEY not found. Add it to Streamlit Secrets or set it in your environment.")
             st.session_state.gemini_initialized = False
             return None
 
@@ -206,10 +216,12 @@ def init_gemini():
         st.session_state.gemini_initialized = True
         st.session_state.gemini_client = client
         return client
+
     except Exception as e:
         st.error(f"Failed to initialize Gemini AI: {str(e)}")
         st.session_state.gemini_initialized = False
         return None
+
 
 # Simple Gemini AI Chat Class
 class GeminiNutritionAI:
