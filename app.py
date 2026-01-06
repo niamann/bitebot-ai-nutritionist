@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 from datetime import datetime
 import random
+import google.generativeai as genai
 import time
 import os
 from dotenv import load_dotenv
