@@ -192,19 +192,18 @@ FOOD_DATABASE = {
 }
 
 def init_gemini():
-    """Initialize Gemini client using GEMINI_API_KEY from Streamlit secrets or environment."""
+    """Initialize Gemini model using GEMINI_API_KEY from Streamlit secrets or env."""
     try:
         load_dotenv()
 
+        # 1) Streamlit secrets (Streamlit Cloud)
         api_key = None
-
-        # 1) Streamlit Cloud Secrets
         try:
-            api_key = st.secrets.get("GEMINI_API_KEY", None)
+            api_key = st.secrets.get("GEMINI_API_KEY")
         except Exception:
             api_key = None
 
-        # 2) Local env / .env
+        # 2) Local .env / environment
         api_key = api_key or os.environ.get("GEMINI_API_KEY")
 
         if not api_key:
@@ -212,11 +211,13 @@ def init_gemini():
             st.session_state.gemini_initialized = False
             return None
 
-        client = genai.Client(api_key=api_key)
+        # ✅ Correct Gemini setup (NO Client())
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
 
         st.session_state.gemini_initialized = True
-        st.session_state.gemini_client = client
-        return client
+        st.session_state.gemini_model = model
+        return model
 
     except Exception as e:
         st.error(f"Failed to initialize Gemini AI: {str(e)}")
@@ -230,35 +231,34 @@ class GeminiNutritionAI:
         self.client = None
 
     def start_chat(self):
-        """Prepare Gemini client + initialize chat history."""
-        if not st.session_state.get("gemini_initialized", False):
-            self.client = init_gemini()
-        else:
-            self.client = st.session_state.get("gemini_client")
+    """Prepare Gemini model + initialize chat history."""
+    if not st.session_state.get("gemini_initialized", False):
+        self.client = init_gemini()
+    else:
+        self.client = st.session_state.get("gemini_model")
 
-        if not self.client:
-            return False
+    if not self.client:
+        return False
 
-        if "gemini_messages" not in st.session_state:
-            # We'll store messages as a simple list of dicts
-            st.session_state.gemini_messages = []
+    if "gemini_messages" not in st.session_state:
+        st.session_state.gemini_messages = []
 
-        # Put your system prompt once (first time only)
-        if not st.session_state.gemini_messages:
-            system_prompt = (
-                "You are BiteBot AI Nutritionist, an expert nutritionist and health coach.\n"
-                "Guidelines:\n"
-                "1. Be friendly, supportive, and non-judgmental\n"
-                "2. Provide evidence-based nutrition information\n"
-                "3. Give practical, actionable advice\n"
-                "4. Consider cultural food preferences\n"
-                "5. Use markdown formatting for readability\n"
-                "6. Include emojis where appropriate\n"
-                "7. Be honest about limitations\n"
-            )
-            st.session_state.gemini_messages.append({"role": "system", "text": system_prompt})
+    if not st.session_state.gemini_messages:
+        system_prompt = (
+            "You are BiteBot AI Nutritionist, an expert nutritionist and health coach.\n"
+            "Guidelines:\n"
+            "1. Be friendly, supportive, and non-judgmental\n"
+            "2. Provide evidence-based nutrition information\n"
+            "3. Give practical, actionable advice\n"
+            "4. Consider cultural food preferences\n"
+            "5. Use markdown formatting for readability\n"
+            "6. Include emojis where appropriate\n"
+            "7. Be honest about limitations\n"
+        )
+        st.session_state.gemini_messages.append({"role": "system", "text": system_prompt})
 
-        return True
+    return True
+
 
     def chat(self, user_message: str) -> str:
         """Send message to Gemini and get response text."""
@@ -282,10 +282,9 @@ class GeminiNutritionAI:
 
             combined_prompt = "\n".join(prompt_lines) + "\nASSISTANT:"
 
-            resp = self.client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=combined_prompt,
-            )
+            response = self.client.generate_content(combined_prompt)
+ai_text = (response.text or "").strip()
+
 
             ai_text = (resp.text or "").strip()
             if not ai_text:
