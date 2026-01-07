@@ -5,7 +5,7 @@ import plotly.express as px
 from datetime import datetime
 import random
 import time
-from google import genai
+import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 import json
