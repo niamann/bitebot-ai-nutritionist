@@ -289,11 +289,8 @@ class GeminiNutritionAI:
             st.session_state.gemini_messages.append({"role": "assistant", "text": ai_text})
             return ai_text
 
-        except Exception:
-            return "⚠️ An error occurred while generating the AI response. Using fallback advice."
-
-
-
+        except Exception as e:
+            return f"⚠️ Gemini error: {e}"
 
 # Initialize Gemini AI
 gemini_ai = GeminiNutritionAI()
@@ -741,8 +738,8 @@ with tab3:
 
 with tab4:
     st.markdown("### 🤖 Chat with AI Nutritionist")
-    
-    # Try to initialize Gemini automatically
+    st.caption(f"Gemini initialized: {st.session_state.get('gemini_initialized', False)}")
+
     if not st.session_state.gemini_initialized:
         with st.spinner("🔧 Setting up AI assistant..."):
             try:
@@ -750,9 +747,11 @@ with tab4:
                 if st.session_state.gemini_initialized:
                     st.success("✅ Gemini AI initialized successfully!")
                 else:
-                    st.warning("⚠️ Could not initialize Gemini AI. Using fallback responses.")
-            except:
-                st.warning("⚠️ Could not initialize Gemini AI. Using fallback responses.")
+                    st.warning("⚠️ Gemini not initialized.")
+            except Exception as e:
+                st.error("❌ Gemini init failed:")
+                st.exception(e)
+
     
     # Display AI Chat Interface
     st.markdown("### 💡 Quick Questions")
