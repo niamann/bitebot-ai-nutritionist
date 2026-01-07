@@ -265,37 +265,45 @@ def start_chat(self):
 
 
 def chat(self, user_message: str) -> str:
+    # Ensure Gemini is initialized
     if not self.client:
-        if not self.start_chat():
-            return "⚠️ Gemini AI is not available."
+        started = self.start_chat()
+        if not started or not self.client:
+            return "⚠️ Gemini AI is currently unavailable. Using fallback response."
 
     try:
+        # Add user message
         st.session_state.gemini_messages.append(
             {"role": "user", "text": user_message}
         )
 
+        # Build prompt from history
         prompt_lines = []
         for m in st.session_state.gemini_messages:
             if m["role"] == "system":
                 prompt_lines.append(f"SYSTEM:\n{m['text']}\n")
             elif m["role"] == "user":
-                prompt_lines.append(f"USER: {m['text']}\n")
+                prompt_lines.append(f"USER:\n{m['text']}\n")
             else:
-                prompt_lines.append(f"ASSISTANT: {m['text']}\n")
+                prompt_lines.append(f"ASSISTANT:\n{m['text']}\n")
 
         combined_prompt = "\n".join(prompt_lines) + "\nASSISTANT:"
 
+        # ✅ Correct Gemini call
         response = self.client.generate_content(combined_prompt)
         ai_text = (response.text or "").strip()
 
+        # Save assistant reply
         st.session_state.gemini_messages.append(
             {"role": "assistant", "text": ai_text}
         )
 
         return ai_text
 
-    except Exception:
-        return "⚠️ Gemini AI is currently busy. Using fallback responses."
+    except Exception as e:
+        # Never crash the app
+        return "⚠️ An error occurred while generating the AI response. Using fallback advice."
+
 
 
 # Initialize Gemini AI
