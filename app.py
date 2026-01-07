@@ -192,46 +192,55 @@ FOOD_DATABASE = {
 }
 
 def init_gemini():
-    """Initialize Gemini client using GEMINI_API_KEY from .env / environment."""
+    """Initialize Gemini using google.generativeai (no Client in this SDK)."""
     try:
         load_dotenv()
 
-        api_key = os.environ.get("GEMINI_API_KEY")
+        # Streamlit Cloud best practice: use st.secrets first, then env
+        api_key = None
+        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+            api_key = st.secrets["GEMINI_API_KEY"]
         if not api_key:
-            st.error("GEMINI_API_KEY not found. Put it in a .env file or set it in your environment.")
+            api_key = os.environ.get("GEMINI_API_KEY")
+
+        if not api_key:
+            st.error("GEMINI_API_KEY not found. Add it to Streamlit secrets or .env.")
             st.session_state.gemini_initialized = False
             return None
 
-        client = genai.Client(api_key=api_key)
+        genai.configure(api_key=api_key)
+
+        # Use a model that is supported by google.generativeai SDK
+        model = genai.GenerativeModel("gemini-1.5-flash")
 
         st.session_state.gemini_initialized = True
-        st.session_state.gemini_client = client
-        return client
+        st.session_state.gemini_model = model
+        return model
+
     except Exception as e:
         st.error(f"Failed to initialize Gemini AI: {str(e)}")
         st.session_state.gemini_initialized = False
         return None
 
-# Simple Gemini AI Chat Class
+
 class GeminiNutritionAI:
     def __init__(self):
-        self.client = None
+        self.model = None
 
     def start_chat(self):
-        """Prepare Gemini client + initialize chat history."""
+        """Prepare Gemini model + initialize chat history."""
         if not st.session_state.get("gemini_initialized", False):
-            self.client = init_gemini()
+            self.model = init_gemini()
         else:
-            self.client = st.session_state.get("gemini_client")
+            self.model = st.session_state.get("gemini_model")
 
-        if not self.client:
+        if not self.model:
             return False
 
         if "gemini_messages" not in st.session_state:
-            # We'll store messages as a simple list of dicts
             st.session_state.gemini_messages = []
 
-        # Put your system prompt once (first time only)
+        # Add system prompt once
         if not st.session_state.gemini_messages:
             system_prompt = (
                 "You are BiteBot AI Nutritionist, an expert nutritionist and health coach.\n"
@@ -250,15 +259,14 @@ class GeminiNutritionAI:
 
     def chat(self, user_message: str) -> str:
         """Send message to Gemini and get response text."""
-        if not self.client:
+        if not self.model:
             if not self.start_chat():
                 return "⚠️ Gemini AI is not available at the moment. Using fallback responses."
 
         try:
-            # Add user message
             st.session_state.gemini_messages.append({"role": "user", "text": user_message})
 
-            # Build a single text prompt from history (simple + reliable)
+            # Build prompt from history (simple + reliable)
             prompt_lines = []
             for m in st.session_state.gemini_messages:
                 if m["role"] == "system":
@@ -270,25 +278,18 @@ class GeminiNutritionAI:
 
             combined_prompt = "\n".join(prompt_lines) + "\nASSISTANT:"
 
-            resp = self.client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=combined_prompt,
-            )
+            resp = self.model.generate_content(combined_prompt)
 
-            ai_text = (resp.text or "").strip()
+            ai_text = (getattr(resp, "text", "") or "").strip()
             if not ai_text:
                 ai_text = "⚠️ I didn't get a response. Using fallback information."
 
-            # Save assistant reply to history
             st.session_state.gemini_messages.append({"role": "assistant", "text": ai_text})
-
             return ai_text
 
-        except Exception as e:
-            # If Gemini fails, use fallback based on the question
-            error_msg = str(e)
-            # Don't show technical error to user, just use fallback
+        except Exception:
             return "⚠️ Gemini AI is currently busy. Using our pre-built nutrition information instead."
+
 
 # Initialize Gemini AI
 gemini_ai = GeminiNutritionAI()
