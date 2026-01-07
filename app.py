@@ -246,23 +246,29 @@ class GeminiNutritionAI:
             Guidelines:
             1. Provide specific, actionable advice
             2. Use bullet points and headings for clarity
-            3. Include emojis where appropriate
+            3. Include emojis where appropriate 🍎💪🥗
             4. Be encouraging and positive
             5. Admit when you don't know something
-            6. Suggest consulting professionals for medical advice"""
+            6. Suggest consulting professionals for medical advice
+            
+            Example response format:
+            **🥗 Your Question Answered**
+            
+            **📊 Key Points:**
+            • Point 1
+            • Point 2
+            
+            **💡 Practical Tips:**
+            • Tip 1
+            • Tip 2
+            
+            **⚠️ Important Note:** Always consult with a healthcare professional..."""
             
             try:
                 # Send system message
                 response = self.chat.send_message(f"System: {system_prompt}")
-                # Initialize history
-                if "gemini_messages" not in st.session_state:
-                    st.session_state.gemini_messages = []
-                st.session_state.gemini_messages.append({
-                    "role": "system",
-                    "content": system_prompt
-                })
-            except:
-                pass  # Ignore if system message fails
+            except Exception as e:
+                st.warning(f"System message failed, but chat initialized: {str(e)[:100]}")
                 
             return True
                 
@@ -277,24 +283,10 @@ class GeminiNutritionAI:
             # Ensure chat is initialized
             if not self.chat:
                 if not self.start_chat():
-                    return "⚠️ Gemini AI is currently unavailable. Please check your API key configuration."
+                    return None  # Return None to trigger fallback
             
             # Send message to Gemini
             response = self.chat.send_message(user_message)
-            
-            # Store message in history
-            if "gemini_messages" not in st.session_state:
-                st.session_state.gemini_messages = []
-            
-            st.session_state.gemini_messages.append({
-                "role": "user",
-                "content": user_message
-            })
-            
-            st.session_state.gemini_messages.append({
-                "role": "assistant",
-                "content": response.text
-            })
             
             return response.text
             
@@ -303,14 +295,28 @@ class GeminiNutritionAI:
             
             # Provide helpful error messages
             if "API_KEY_INVALID" in error_msg:
-                return "⚠️ **API Key Issue**: Your Gemini API key appears to be invalid. Please check your Streamlit secrets configuration."
+                st.error("❌ **API Key Issue**: Your Gemini API key appears to be invalid.")
+                return None
             elif "quota" in error_msg.lower():
-                return "⚠️ **API Quota Exceeded**: You've reached your Gemini API usage limit. Please check your Google AI Studio quota."
+                st.error("❌ **API Quota Exceeded**: You've reached your Gemini API usage limit.")
+                return None
             elif "429" in error_msg:
-                return "⚠️ **Rate Limited**: Too many requests. Please wait a moment and try again."
+                st.error("⚠️ **Rate Limited**: Too many requests. Please wait a moment and try again.")
+                return None
             else:
-                return f"⚠️ **AI Service Error**: {error_msg[:150]}...\n\nYou can still use the other features of BiteBot while we fix this!"
-            
+                st.error(f"⚠️ **AI Error**: {error_msg[:100]}")
+                return None
+
+# Initialize Gemini AI
+gemini_ai = GeminiNutritionAI()
+
+# Try to initialize Gemini silently at startup
+if not st.session_state.get("gemini_initialized", False):
+    try:
+        gemini_ai.start_chat()
+    except:
+        pass  # Silent initialization - user can see status in AI Chat tab
+
 def analyze_food(food_name):
     """Analyze food and return health status"""
     food_lower = food_name.lower()
@@ -552,16 +558,6 @@ def add_ai_chat_message(user_message, ai_response):
         "time": timestamp
     })
 
-# Initialize Gemini AI
-gemini_ai = GeminiNutritionAI()
-
-# Try to initialize Gemini silently at startup
-if not st.session_state.get("gemini_initialized", False):
-    try:
-        gemini_ai.start_chat()
-    except:
-        pass  # Silent initialization - user can see status in AI Chat tab
-
 # Main App
 st.markdown('<h1 class="main-title">🍎 BiteBot AI Nutritionist</h1>', unsafe_allow_html=True)
 st.markdown('<p style="text-align:center;color:#00ffcc;font-size:1.2rem;margin-bottom:30px;">Instant Food Analysis • Smart Nutrition Tips • AI-Powered Chat</p>', unsafe_allow_html=True)
@@ -765,6 +761,20 @@ with tab3:
 with tab4:
     st.markdown("### 🤖 Chat with AI Nutritionist")
     
+    # DEBUG: Show API status
+    with st.expander("🔧 Debug Info (Click to expand)", expanded=False):
+        st.write("**Gemini Status:**", st.session_state.get("gemini_initialized", False))
+        
+        # Check for API key
+        load_dotenv()
+        api_key = None
+        try:
+            api_key = st.secrets.get("GEMINI_API_KEY", "Not found in secrets")
+        except:
+            api_key = "Could not access secrets"
+        
+        st.write("**API Key Status:**", "Found" if api_key and "Not found" not in str(api_key) and "Could not" not in str(api_key) else "Missing")
+    
     # Display AI status
     status_col1, status_col2 = st.columns([1, 3])
     with status_col1:
@@ -930,75 +940,98 @@ with tab4:
     with col_q1:
         if st.button("🥗 Healthy Meal Ideas", use_container_width=True, key="meal_ideas"):
             user_msg = "Give me some healthy meal ideas for weight loss"
-            with st.spinner("Thinking..."):
+            with st.spinner("🤖 AI is thinking..."):
+                # Try to get response from Gemini
+                response = None
                 if st.session_state.gemini_initialized:
                     response = gemini_ai.chat_message(user_msg)
-                    # Check if response contains error
-                    if "⚠️" in response or response.startswith("Error"):
-                        response = fallback_responses.get(user_msg, "Here's some healthy meal ideas...")
-                else:
-                    response = fallback_responses.get(user_msg, "Here's some healthy meal ideas...")
+                
+                # If Gemini failed or not initialized, use fallback
+                if response is None or response.strip() == "":
+                    response = fallback_responses.get(user_msg, 
+                        "**Here's nutrition advice about 'Healthy Meal Ideas':**\n\nFor personalized advice, I recommend:\n1. Consulting with a registered dietitian\n2. Looking at evidence-based nutrition sources\n3. Considering your individual health needs\n4. Making sustainable lifestyle changes")
+                
                 add_ai_chat_message(user_msg, response)
             st.rerun()
         
         if st.button("💪 Protein Sources", use_container_width=True, key="protein_sources"):
             user_msg = "What are the best protein sources for muscle building?"
-            with st.spinner("Thinking..."):
+            with st.spinner("🤖 AI is thinking..."):
+                # Try to get response from Gemini
+                response = None
                 if st.session_state.gemini_initialized:
                     response = gemini_ai.chat_message(user_msg)
-                    if "⚠️" in response or response.startswith("Error"):
-                        response = fallback_responses.get(user_msg, "Here are protein sources...")
-                else:
-                    response = fallback_responses.get(user_msg, "Here are protein sources...")
+                
+                # If Gemini failed or not initialized, use fallback
+                if response is None or response.strip() == "":
+                    response = fallback_responses.get(user_msg, 
+                        "**Here's nutrition advice about 'Protein Sources':**\n\nFor personalized advice, I recommend:\n1. Consulting with a registered dietitian\n2. Looking at evidence-based nutrition sources\n3. Considering your individual health needs\n4. Making sustainable lifestyle changes")
+                
                 add_ai_chat_message(user_msg, response)
             st.rerun()
         
         if st.button("🔥 Calorie Counting", use_container_width=True, key="calorie_counting"):
             user_msg = "How can I count calories effectively?"
-            with st.spinner("Thinking..."):
+            with st.spinner("🤖 AI is thinking..."):
+                # Try to get response from Gemini
+                response = None
                 if st.session_state.gemini_initialized:
                     response = gemini_ai.chat_message(user_msg)
-                    if "⚠️" in response or response.startswith("Error"):
-                        response = fallback_responses.get(user_msg, "Here's how to count calories...")
-                else:
-                    response = fallback_responses.get(user_msg, "Here's how to count calories...")
+                
+                # If Gemini failed or not initialized, use fallback
+                if response is None or response.strip() == "":
+                    response = fallback_responses.get(user_msg, 
+                        "**Here's nutrition advice about 'Calorie Counting':**\n\nFor personalized advice, I recommend:\n1. Consulting with a registered dietitian\n2. Looking at evidence-based nutrition sources\n3. Considering your individual health needs\n4. Making sustainable lifestyle changes")
+                
                 add_ai_chat_message(user_msg, response)
             st.rerun()
     
     with col_q2:
         if st.button("🍎 Food Myths", use_container_width=True, key="food_myths"):
             user_msg = "What are common nutrition myths I should know?"
-            with st.spinner("Thinking..."):
+            with st.spinner("🤖 AI is thinking..."):
+                # Try to get response from Gemini
+                response = None
                 if st.session_state.gemini_initialized:
                     response = gemini_ai.chat_message(user_msg)
-                    if "⚠️" in response or response.startswith("Error"):
-                        response = fallback_responses.get(user_msg, "Here are nutrition myths...")
-                else:
-                    response = fallback_responses.get(user_msg, "Here are nutrition myths...")
+                
+                # If Gemini failed or not initialized, use fallback
+                if response is None or response.strip() == "":
+                    response = fallback_responses.get(user_msg, 
+                        "**Here's nutrition advice about 'Nutrition Myths':**\n\nFor personalized advice, I recommend:\n1. Consulting with a registered dietitian\n2. Looking at evidence-based nutrition sources\n3. Considering your individual health needs\n4. Making sustainable lifestyle changes")
+                
                 add_ai_chat_message(user_msg, response)
             st.rerun()
         
         if st.button("💧 Hydration Tips", use_container_width=True, key="hydration"):
             user_msg = "How much water should I drink daily and why?"
-            with st.spinner("Thinking..."):
+            with st.spinner("🤖 AI is thinking..."):
+                # Try to get response from Gemini
+                response = None
                 if st.session_state.gemini_initialized:
                     response = gemini_ai.chat_message(user_msg)
-                    if "⚠️" in response or response.startswith("Error"):
-                        response = fallback_responses.get(user_msg, "Here's about hydration...")
-                else:
-                    response = fallback_responses.get(user_msg, "Here's about hydration...")
+                
+                # If Gemini failed or not initialized, use fallback
+                if response is None or response.strip() == "":
+                    response = fallback_responses.get(user_msg, 
+                        "**Here's nutrition advice about 'Hydration':**\n\nFor personalized advice, I recommend:\n1. Consulting with a registered dietitian\n2. Looking at evidence-based nutrition sources\n3. Considering your individual health needs\n4. Making sustainable lifestyle changes")
+                
                 add_ai_chat_message(user_msg, response)
             st.rerun()
         
         if st.button("📊 Diet Planning", use_container_width=True, key="diet_planning"):
             user_msg = "How to create a balanced diet plan?"
-            with st.spinner("Thinking..."):
+            with st.spinner("🤖 AI is thinking..."):
+                # Try to get response from Gemini
+                response = None
                 if st.session_state.gemini_initialized:
                     response = gemini_ai.chat_message(user_msg)
-                    if "⚠️" in response or response.startswith("Error"):
-                        response = fallback_responses.get(user_msg, "Here's about diet planning...")
-                else:
-                    response = fallback_responses.get(user_msg, "Here's about diet planning...")
+                
+                # If Gemini failed or not initialized, use fallback
+                if response is None or response.strip() == "":
+                    response = fallback_responses.get(user_msg, 
+                        "**Here's nutrition advice about 'Diet Planning':**\n\nFor personalized advice, I recommend:\n1. Consulting with a registered dietitian\n2. Looking at evidence-based nutrition sources\n3. Considering your individual health needs\n4. Making sustainable lifestyle changes")
+                
                 add_ai_chat_message(user_msg, response)
             st.rerun()
     
@@ -1051,22 +1084,21 @@ with tab4:
     
     if ask_btn and ai_question:
         with st.spinner("🤖 AI is thinking..."):
+            # Try to get response from Gemini
+            response = None
             if st.session_state.gemini_initialized:
                 response = gemini_ai.chat_message(ai_question)
-                # If Gemini returns error, use generic fallback
-                if "⚠️" in response or response.startswith("Error"):
-                    response = f"**Here's nutrition advice about '{ai_question}':**\n\nFor personalized advice, I recommend:\n1. Consulting with a registered dietitian\n2. Looking at evidence-based nutrition sources\n3. Considering your individual health needs\n4. Making sustainable lifestyle changes"
-            else:
-                # Simple fallback for custom questions
-                response = f"**Nutrition advice about '{ai_question}':**\n\nFor detailed answers, ensure Gemini AI is configured.\n\nI recommend:\n1. Consulting with a registered dietitian\n2. Looking at evidence-based nutrition sources\n3. Considering your individual health needs\n4. Making sustainable lifestyle changes"
+            
+            # If Gemini failed or not initialized, use fallback
+            if response is None or response.strip() == "":
+                response = f"**Here's nutrition advice about '{ai_question}':**\n\nFor personalized advice, I recommend:\n1. Consulting with a registered dietitian\n2. Looking at evidence-based nutrition sources\n3. Considering your individual health needs\n4. Making sustainable lifestyle changes"
+            
             add_ai_chat_message(ai_question, response)
         st.rerun()
     
     # Clear AI Chat button
     if st.button("🗑️ Clear AI Chat", use_container_width=True, type="secondary"):
         st.session_state.ai_chat_history = []
-        if "gemini_messages" in st.session_state:
-            st.session_state.gemini_messages = []
         # Reset chat session
         if st.session_state.gemini_initialized:
             try:
@@ -1080,8 +1112,6 @@ if st.button("🗑️ Clear All History", use_container_width=True, type="second
     st.session_state.chat_history = []
     st.session_state.food_log = []
     st.session_state.ai_chat_history = []
-    if "gemini_messages" in st.session_state:
-        st.session_state.gemini_messages = []
     # Restart AI chat
     if st.session_state.gemini_initialized:
         try:
