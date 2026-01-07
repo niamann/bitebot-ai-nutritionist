@@ -192,43 +192,44 @@ FOOD_DATABASE = {
 }
 
 def init_gemini():
-    """Initialize Gemini using google.generativeai (no Client in this SDK)."""
+    """Initialize Gemini using google.generativeai"""
     try:
         load_dotenv()
 
-        # Streamlit Cloud best practice: use st.secrets first, then env
         api_key = None
+        # Prefer Streamlit secrets (Streamlit Cloud)
         if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
             api_key = st.secrets["GEMINI_API_KEY"]
         if not api_key:
             api_key = os.environ.get("GEMINI_API_KEY")
 
         if not api_key:
-            st.error("GEMINI_API_KEY not found. Add it to Streamlit secrets or .env.")
             st.session_state.gemini_initialized = False
+            st.session_state.gemini_error = "GEMINI_API_KEY not found in st.secrets or environment."
             return None
 
         genai.configure(api_key=api_key)
 
-        # Use a model that is supported by google.generativeai SDK
+        # Most compatible model for this SDK
         model = genai.GenerativeModel("gemini-1.5-flash")
 
         st.session_state.gemini_initialized = True
         st.session_state.gemini_model = model
+        st.session_state.gemini_error = None
         return model
 
     except Exception as e:
-        st.error(f"Failed to initialize Gemini AI: {str(e)}")
         st.session_state.gemini_initialized = False
+        st.session_state.gemini_error = str(e)
         return None
 
 
 class GeminiNutritionAI:
     def __init__(self):
         self.model = None
+        self.chat_session = None
 
     def start_chat(self):
-        """Prepare Gemini model + initialize chat history."""
         if not st.session_state.get("gemini_initialized", False):
             self.model = init_gemini()
         else:
@@ -237,11 +238,8 @@ class GeminiNutritionAI:
         if not self.model:
             return False
 
-        if "gemini_messages" not in st.session_state:
-            st.session_state.gemini_messages = []
-
-        # Add system prompt once
-        if not st.session_state.gemini_messages:
+        # Create the chat session once and store in session_state
+        if "gemini_chat_session" not in st.session_state:
             system_prompt = (
                 "You are BiteBot AI Nutritionist, an expert nutritionist and health coach.\n"
                 "Guidelines:\n"
@@ -253,42 +251,32 @@ class GeminiNutritionAI:
                 "6. Include emojis where appropriate\n"
                 "7. Be honest about limitations\n"
             )
-            st.session_state.gemini_messages.append({"role": "system", "text": system_prompt})
 
+            # Gemini chat history format
+            history = [
+                {"role": "user", "parts": [f"SYSTEM:\n{system_prompt}"]}
+            ]
+
+            st.session_state.gemini_chat_session = self.model.start_chat(history=history)
+
+        self.chat_session = st.session_state.gemini_chat_session
         return True
 
     def chat(self, user_message: str) -> str:
-        """Send message to Gemini and get response text."""
-        if not self.model:
+        if not self.chat_session:
             if not self.start_chat():
-                return "⚠️ Gemini AI is not available at the moment. Using fallback responses."
+                return "⚠️ Gemini AI not available. Please check API key / setup."
 
         try:
-            st.session_state.gemini_messages.append({"role": "user", "text": user_message})
+            resp = self.chat_session.send_message(user_message)
+            text = (getattr(resp, "text", "") or "").strip()
+            if not text:
+                return "⚠️ Gemini returned an empty reply. Try again."
+            return text
 
-            # Build prompt from history (simple + reliable)
-            prompt_lines = []
-            for m in st.session_state.gemini_messages:
-                if m["role"] == "system":
-                    prompt_lines.append(f"SYSTEM:\n{m['text']}\n")
-                elif m["role"] == "user":
-                    prompt_lines.append(f"USER: {m['text']}\n")
-                else:
-                    prompt_lines.append(f"ASSISTANT: {m['text']}\n")
-
-            combined_prompt = "\n".join(prompt_lines) + "\nASSISTANT:"
-
-            resp = self.model.generate_content(combined_prompt)
-
-            ai_text = (getattr(resp, "text", "") or "").strip()
-            if not ai_text:
-                ai_text = "⚠️ I didn't get a response. Using fallback information."
-
-            st.session_state.gemini_messages.append({"role": "assistant", "text": ai_text})
-            return ai_text
-
-        except Exception:
-            return "⚠️ Gemini AI is currently busy. Using our pre-built nutrition information instead."
+        except Exception as e:
+            st.session_state.gemini_error = str(e)
+            return "⚠️ Gemini AI failed. Using fallback responses."
 
 
 # Initialize Gemini AI
@@ -739,6 +727,10 @@ with tab4:
     st.markdown("### 🤖 Chat with AI Nutritionist")
     
     # Try to initialize Gemini automatically
+    st.caption(f"Gemini status: {st.session_state.get('gemini_initialized', False)}")
+if st.session_state.get("gemini_error"):
+    st.warning(f"Gemini error: {st.session_state.gemini_error}")
+
     if not st.session_state.gemini_initialized:
         with st.spinner("🔧 Setting up AI assistant..."):
             try:
