@@ -161,10 +161,7 @@ FOOD_DATABASE = {
 # Gemini init + chat
 # =========================
 def init_gemini():
-    """
-    Initialize Gemini using google.generativeai
-    Works on Streamlit Cloud via st.secrets or locally via .env / env var.
-    """
+    """Initialize Gemini using google.generativeai (v1beta-compatible)"""
     try:
         load_dotenv()
 
@@ -176,17 +173,42 @@ def init_gemini():
 
         if not api_key:
             st.session_state.gemini_initialized = False
-            st.session_state.gemini_error = "GEMINI_API_KEY not found (Streamlit secrets or environment)."
+            st.session_state.gemini_error = "GEMINI_API_KEY not found (Streamlit secrets or env)."
             st.session_state.gemini_model = None
             st.session_state.gemini_chat_session = None
             return None
 
         genai.configure(api_key=api_key)
 
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        # ✅ v1beta compatible fallback list (try in order)
+        candidate_models = [
+            "gemini-pro",        # most compatible text model (old SDK)
+            "text-bison-001",    # older fallback 
+        ]
+
+        last_err = None
+        model = None
+
+        for name in candidate_models:
+            try:
+                m = genai.GenerativeModel(name)
+                # ✅ Validate the model really works before marking initialized
+                _ = m.generate_content("ping")
+                model = m
+                st.session_state.gemini_error = None
+                break
+            except Exception as e:
+                last_err = e
+                continue
+
+        if not model:
+            st.session_state.gemini_initialized = False
+            st.session_state.gemini_error = f"Could not load any Gemini model. Last error: {last_err}"
+            st.session_state.gemini_model = None
+            st.session_state.gemini_chat_session = None
+            return None
 
         st.session_state.gemini_initialized = True
-        st.session_state.gemini_error = None
         st.session_state.gemini_model = model
         return model
 
@@ -203,8 +225,7 @@ class GeminiNutritionAI:
         self.model = None
         self.chat_session = None
 
-    def ensure_ready(self) -> bool:
-        # if not initialized, try init
+    def start_chat(self):
         if not st.session_state.get("gemini_initialized", False) or st.session_state.get("gemini_model") is None:
             self.model = init_gemini()
         else:
@@ -213,7 +234,6 @@ class GeminiNutritionAI:
         if not self.model:
             return False
 
-        # Create chat session once
         if st.session_state.get("gemini_chat_session") is None:
             system_prompt = (
                 "You are BiteBot AI Nutritionist, an expert nutritionist and health coach.\n"
@@ -226,8 +246,6 @@ class GeminiNutritionAI:
                 "6. Include emojis where appropriate\n"
                 "7. Be honest about limitations\n"
             )
-
-            # Put system in history as first user message (simple)
             history = [{"role": "user", "parts": [f"SYSTEM:\n{system_prompt}"]}]
             st.session_state.gemini_chat_session = self.model.start_chat(history=history)
 
@@ -235,22 +253,19 @@ class GeminiNutritionAI:
         return True
 
     def chat(self, user_message: str) -> str:
-        if not self.ensure_ready():
-            return "⚠️ Gemini AI not available. Please add GEMINI_API_KEY in Streamlit secrets."
+        if not self.chat_session:
+            if not self.start_chat():
+                return "⚠️ Gemini AI not available. Check your API key and model."
 
         try:
             resp = self.chat_session.send_message(user_message)
             text = (getattr(resp, "text", "") or "").strip()
-            if not text:
-                return "⚠️ Gemini returned an empty reply. Try again."
-            return text
+            return text if text else "⚠️ Gemini returned an empty reply. Try again."
         except Exception as e:
             st.session_state.gemini_error = str(e)
             st.session_state.gemini_initialized = False
+            st.session_state.gemini_chat_session = None
             return "⚠️ Gemini AI failed. Using fallback responses."
-
-
-gemini_ai = GeminiNutritionAI()
 
 # =========================
 # Food logic
